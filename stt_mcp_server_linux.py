@@ -102,13 +102,13 @@ class MCPServer:
         self.speech_to_text_service = speech_to_text_service
         self.logger = logging.getLogger(__name__)
         self.background_tasks: List[asyncio.Task[Any]] = []
-    
+
     def send_response(self, response: Dict[str, Any]) -> None:
         """Send JSON-RPC response to stdout."""
         json.dump(response, sys.stdout)
         sys.stdout.write('\n')
         sys.stdout.flush()
-    
+
     def handle_initialize(self, request_id: Optional[str]) -> None:
         """Handle MCP initialize request."""
         response = {
@@ -165,7 +165,7 @@ class MCPServer:
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": {
-                    "content": [{"type": "text", "text": "Speech-to-text transcription activated. Press Right Ctrl to start recording."}],
+                    "content": [{"type": "text", "text": "Speech-to-text transcription activated. Press Right Super + Right Shift keys to start recording."}],
                     "isError": False
                 }
             }
@@ -180,7 +180,7 @@ class MCPServer:
                 }
             }
             self.send_response(response)
-    
+
     def handle_request(self, request: Dict[str, Any]) -> None:
         """Handle incoming JSON-RPC request."""
         method = request.get("method")
@@ -214,7 +214,7 @@ class MCPServer:
                     }
                 }
                 self.send_response(response)
-    
+
     async def run(self) -> None:
         """Main MCP server loop."""
         self.logger.info("Service Initialized in MCP mode")
@@ -246,23 +246,23 @@ class MCPServer:
 
 class AudioRecorder:
     """Manages audio recording and buffering."""
-    
+
     def __init__(self) -> None:
         self.audio_queue: queue.Queue[bytes] = queue.Queue()
         self.recording_active = False
         self.audio_stream: Optional[sounddevice.RawInputStream] = None
         self.logger = logging.getLogger(__name__)
-    
+
     def audio_callback(self, indata: Any, frames: int, time: Any, status: Any) -> None:
         """Callback for audio stream data."""
         self.audio_queue.put(bytes(indata))
-    
+
     def start_recording(self) -> None:
         """Start audio recording."""
         if self.recording_active:
             self.logger.debug("Recording already active, ignoring start request")
             return
-            
+
         self.logger.info("Starting audio recording")
         try:
             self.audio_stream = sounddevice.RawInputStream(
@@ -277,46 +277,46 @@ class AudioRecorder:
             self._cleanup_failed_stream()
             self.recording_active = False
             raise
-    
+
     def stop_recording(self) -> bytes:
         """Stop audio recording and return collected audio data."""
         if not self.recording_active:
             self.logger.debug("Recording not active, nothing to stop")
             return b""
-        
+
         if not self.audio_stream:
             self.logger.exception("Audio stream is None but recording is active - inconsistent state")
             self.recording_active = False
             return b""
-        
+
         try:
             self.logger.info("Stopping audio recording")
             self.recording_active = False
             self.audio_stream.stop()
             self.audio_stream.close()
-            
+
             audio_bytes = b""
-            
+
             while not self.audio_queue.empty():
                 try:
                     audio_bytes += self.audio_queue.get_nowait()
                 except queue.Empty:
                     break
-                
+
             self.logger.info(f"Audio recording stopped, collected {len(audio_bytes)} bytes")
             return audio_bytes
-        
+
         except Exception as e:
             self.logger.exception(f"Error stopping audio recording: {e}")
             self.recording_active = False
             return b""
-    
+
     def __enter__(self) -> 'AudioRecorder':
         return self
-    
+
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.cleanup()
-    
+
     def _cleanup_failed_stream(self) -> None:
         """Clean up audio stream after initialization failure."""
         if self.audio_stream:
@@ -343,7 +343,7 @@ class AudioRecorder:
 
 class TranscriptionEngine:
     """Abstract base for transcription engines."""
-    
+
     def transcribe(self, audio_data: bytes) -> str:
         """Transcribe audio data to text."""
         raise NotImplementedError
@@ -360,7 +360,7 @@ class WhisperEngine(TranscriptionEngine):
         import whisper  # type: ignore[import-untyped]
         self.model = whisper.load_model("tiny")
         self.logger.info("Whisper model loaded successfully")
-    
+
     def transcribe(self, audio_data: bytes) -> str:
         """Transcribe audio using Whisper model."""
         if not audio_data:
@@ -389,7 +389,7 @@ class WhisperEngine(TranscriptionEngine):
 
 class VoskEngine(TranscriptionEngine):
     """Vosk-based transcription engine."""
-    
+
     def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
         self.logger.info("Loading Vosk model")
@@ -397,31 +397,31 @@ class VoskEngine(TranscriptionEngine):
         self.model = vosk.Model("/vosk")
         self.recognizer = vosk.KaldiRecognizer(self.model, 16000)
         self.logger.info("Vosk model loaded successfully")
-    
+
     def transcribe(self, audio_data: bytes) -> str:
         """Transcribe audio using Vosk model."""
         if not audio_data:
             self.logger.debug("No audio data provided for transcription")
             return ""
-            
+
         self.logger.info(f"Starting Vosk transcription of {len(audio_data)} bytes")
         self.recognizer.Reset()
-        
+
         chunk_size = 2048
         result_text = ""
         chunks_processed = 0
-        
+
         for i in range(0, len(audio_data), chunk_size):
             chunk = audio_data[i:i + chunk_size]
             if self.recognizer.AcceptWaveform(chunk):
                 res = json.loads(self.recognizer.Result())
                 result_text += res.get("text", "") + " "
             chunks_processed += 1
-        
+
         self.logger.debug(f"Processed {chunks_processed} audio chunks")
         final_result = json.loads(self.recognizer.FinalResult())
         result_text += final_result.get("text", "")
-        
+
         text = result_text.strip()
         self.logger.info(f"Vosk transcription completed: '{text}'")
         return text
@@ -429,7 +429,7 @@ class VoskEngine(TranscriptionEngine):
 
 class OutputHandler:
     """Abstract base for output handling."""
-    
+
     def send_text(self, text: str) -> None:
         """Send transcribed text to output destination."""
         raise NotImplementedError
@@ -437,63 +437,63 @@ class OutputHandler:
 
 class TmuxOutputHandler(OutputHandler):
     """Tmux-based output handler."""
-    
+
     def __init__(self, session_name: str) -> None:
         self.session_name = self._validate_session_name(session_name)
         self.logger = logging.getLogger(__name__)
-    
+
     def _validate_session_name(self, session_name: str) -> str:
         """Validate tmux session name against injection attacks."""
         if not session_name or not session_name.strip():
             raise ValueError("Session name cannot be empty")
-        
+
         if not re.match(r'^[a-zA-Z0-9_-]+$', session_name):
             raise ValueError("Session name contains invalid characters")
-        
+
         if len(session_name) > 64:
             raise ValueError("Session name too long")
-            
+
         return session_name.strip()
-    
+
     def _sanitize_text(self, text: str) -> str:
         """Sanitize text to prevent command injection."""
         if not text:
             return ""
-        
+
         # Normalize unicode to prevent normalization attacks
         text = unicodedata.normalize('NFKC', text)
-        
+
         # Remove control characters and format characters
-        text = ''.join(char for char in text 
+        text = ''.join(char for char in text
                        if unicodedata.category(char) not in ['Cc', 'Cf'])
-        
+
         # Remove shell metacharacters (ASCII)
         dangerous_chars = ['|', '&', ';', '`', '$', '(', ')', '<', '>', '\\']
         for char in dangerous_chars:
             text = text.replace(char, '')
-        
+
         # Restrict to printable characters only
         text = ''.join(char for char in text if char.isprintable())
-        
+
         # Limit text length to prevent excessive input (5000 characters ≈ 5 minutes of speech)
         if len(text) > 5000:
             text = text[:5000]
-        
+
         return text.strip()
-    
+
     def send_text(self, text: str) -> None:
         """Send text to tmux session."""
         try:
             sanitized_text = self._sanitize_text(text)
             sanitized_session = self._sanitize_text(self.session_name)
-            
+
             if not sanitized_text:
                 self.logger.info("Empty or entirely filtered transcription text, skipping")
                 return
 
             if sanitized_text != text:
                 self.logger.info(f"Sanitized transcription text from '{text}' to '{sanitized_text}'")
-            
+
             result = subprocess.run(
                 ["tmux", "send-keys", "-t", sanitized_session, sanitized_text],
                 capture_output=True,
@@ -509,25 +509,25 @@ class TmuxOutputHandler(OutputHandler):
 
 class StdoutOutputHandler(OutputHandler):
     """Stdout-based output handler."""
-    
+
     def send_text(self, text: str) -> None:
         """Send text to stdout."""
         print(f"[Transcript] {text}")
 
 
 class KeyboardMonitor:
-    """Monitors keyboard devices for Right Ctrl key events."""
-    
+    """Monitors keyboard devices for Right Super + Right Shift key events."""
+
     def __init__(self, keyboard_name: Optional[str] = None) -> None:
         self.keyboard_name = keyboard_name
         self.logger = logging.getLogger(__name__)
-    
+
     async def find_keyboards(self) -> List[evdev.InputDevice]:
         """Find keyboard input devices matching the configured name."""
         self.logger.info("Scanning for keyboard devices")
         keyboards = []
         available_keyboards = []
-        
+
         for dev_path in evdev.list_devices():
             try:
                 device = evdev.InputDevice(dev_path)
@@ -538,7 +538,7 @@ class KeyboardMonitor:
                         keyboards.append(device)
             except Exception as e:
                 self.logger.debug(f"Could not access device {dev_path}: {e}")
-        
+
         if not keyboards and self.keyboard_name:
             available_list = ", ".join(available_keyboards) if available_keyboards else "none"
             raise RuntimeError(
@@ -546,70 +546,101 @@ class KeyboardMonitor:
                 f"Available keyboards: {available_list}. "
                 f"Use --keyboard option or leave empty to use all keyboards."
             )
-        
+
         if not keyboards:
             raise RuntimeError(
                 "No keyboard input devices found. "
                 "Ensure you have appropriate permissions to access /dev/input devices."
             )
-        
+
         self.logger.info(f"Found {len(keyboards)} matching keyboard devices")
         return keyboards
-    
-    async def monitor_device(self, dev_path: str, on_key_press: KeyEventCallback, on_key_release: KeyEventCallback) -> None:
-        """Monitor a single keyboard device for Right Ctrl events."""
+
+    async def monitor_device(self, dev_path: str, on_key_press: KeyEventCallback, on_key_release: KeyEventCallback, on_key_cancel: KeyEventCallback) -> None:
+        """Monitor a single keyboard device for Right Super + Right Shift key events.
+
+        Triggers when Right Shift is pressed while Right Super (Windows) key is held.
+        Recording continues while Right Shift is held. If other keys are pressed during
+        recording, on_key_cancel is called instead of on_key_release.
+        """
         dev = evdev.InputDevice(dev_path)
-        self.logger.info(f"Waiting for Right Ctrl key press on {dev.name} ({dev_path})")
-        
+        self.logger.info(f"Waiting for Right Super + Right Shift key press on {dev.name} ({dev_path})")
+
+        meta_held = False
+        recording = False
+        other_key_pressed = False
+
         try:
             async for event in dev.async_read_loop():
                 if event.type == evdev.ecodes.EV_KEY:
                     key_event = evdev.categorize(event)
-                    if key_event.keycode == 'KEY_RIGHTCTRL':  # type: ignore[attr-defined]
+                    if key_event.keycode == 'KEY_RIGHTMETA':  # type: ignore[attr-defined]
                         if key_event.keystate == key_event.key_down:  # type: ignore[attr-defined]
-                            self.logger.info("Right Ctrl key pressed")
-                            on_key_press()
+                            meta_held = True
                         elif key_event.keystate == key_event.key_up:  # type: ignore[attr-defined]
-                            self.logger.info("Right Ctrl key released")
-                            on_key_release()
+                            meta_held = False
+                            if recording:
+                                recording = False
+                                if other_key_pressed:
+                                    self.logger.info("Right Super released during recording (cancelled: other keys were pressed)")
+                                    on_key_cancel()
+                                else:
+                                    self.logger.info("Right Super released during recording, stopping")
+                                    on_key_release()
+                    elif key_event.keycode == 'KEY_RIGHTSHIFT':  # type: ignore[attr-defined]
+                        if key_event.keystate == key_event.key_down and meta_held and not recording:  # type: ignore[attr-defined]
+                            self.logger.info("Right Super + Right Shift pressed, starting recording")
+                            recording = True
+                            other_key_pressed = False
+                            on_key_press()
+                        elif key_event.keystate == key_event.key_up and recording:  # type: ignore[attr-defined]
+                            recording = False
+                            if other_key_pressed:
+                                self.logger.info("Right Shift released (cancelled: other keys were pressed)")
+                                on_key_cancel()
+                            else:
+                                self.logger.info("Right Shift released, stopping recording")
+                                on_key_release()
+                    elif recording and key_event.keystate == key_event.key_down:  # type: ignore[attr-defined]
+                        other_key_pressed = True
         except Exception as e:
             self.logger.exception(f"Error monitoring device {dev_path}: {e}")
-    
-    async def start_monitoring(self, on_key_press: KeyEventCallback, on_key_release: KeyEventCallback) -> None:
+
+    async def start_monitoring(self, on_key_press: KeyEventCallback, on_key_release: KeyEventCallback, on_key_cancel: KeyEventCallback) -> None:
         """Start monitoring all matching keyboards."""
         keyboards = await self.find_keyboards()
         if not keyboards:
             raise RuntimeError("No keyboard input devices found.")
-        
+
         await asyncio.gather(*(
-            self.monitor_device(str(dev.path), on_key_press, on_key_release)
+            self.monitor_device(str(dev.path), on_key_press, on_key_release, on_key_cancel)
             for dev in keyboards
         ))
 
 
 class SpeechToTextService:
     """Main speech-to-text service coordinating all components."""
-    
-    def __init__(self, config: 'Config', 
+
+    def __init__(self, config: 'Config',
                  audio_recorder: AudioRecorder,
                  keyboard_monitor: KeyboardMonitor,
                  transcription_engine: TranscriptionEngine,
                  output_handler: OutputHandler) -> None:
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
         self.audio_recorder = audio_recorder
         self.keyboard_monitor = keyboard_monitor
         self.transcription_engine = transcription_engine
         self.output_handler = output_handler
-    
+
     def on_key_press(self) -> None:
-        """Handle Right Ctrl key press."""
+        """Handle Right Super (Windows) key press."""
         self.logger.info("Key press detected, starting audio recording")
         self.audio_recorder.start_recording()
-    
+
     def on_key_release(self) -> None:
-        """Handle Right Ctrl key release."""
+        """Handle Right Super (Windows) key release."""
         self.logger.info("Key release detected, processing audio")
         audio_data = self.audio_recorder.stop_recording()
         if audio_data:
@@ -621,7 +652,12 @@ class SpeechToTextService:
                 self.logger.info("Transcription returned empty text")
         else:
             self.logger.info("No audio data captured")
-    
+
+    def on_key_cancel(self) -> None:
+        """Handle Super (Windows) key release after a key combination (discard recording)."""
+        self.logger.info("Key combination detected, discarding audio recording")
+        self.audio_recorder.stop_recording()
+
     async def start_async(self) -> None:
         """Start the speech-to-text service as an async coroutine (for MCP mode)."""
         self.logger.info("Starting speech-to-text functionality in async mode")
@@ -629,7 +665,8 @@ class SpeechToTextService:
         try:
             await self.keyboard_monitor.start_monitoring(
                 self.on_key_press,
-                self.on_key_release
+                self.on_key_release,
+                self.on_key_cancel
             )
         finally:
             self.audio_recorder.cleanup()
@@ -641,7 +678,8 @@ class SpeechToTextService:
         try:
             asyncio.run(self.keyboard_monitor.start_monitoring(
                 self.on_key_press,
-                self.on_key_release
+                self.on_key_release,
+                self.on_key_cancel
             ))
         finally:
             self.audio_recorder.cleanup()
@@ -678,8 +716,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Speech-to-text service")
 
     parser.add_argument(
-        "--keyboard", 
-        type=str, 
+        "--keyboard",
+        type=str,
         help="Name of the keyboard to listen to (optional)"
     )
     parser.add_argument(
